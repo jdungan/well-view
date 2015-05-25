@@ -132,13 +132,10 @@
      color: 0x555555,
      shininess: 150
    })
-   var kb = new THREE.Mesh(geometry, material);
-   // kb.rotateX( 90 )
-   // kb.rotation.x = 90
-
-   kb.position.set(well.lat, well.lng, kb_val)
-   kb.receiveShadow = true
-   return kb
+   var mesh = new THREE.Mesh(geometry, material);
+   mesh.position.set(well.lat, well.lng, kb_val)
+   mesh.receiveShadow = true
+   return mesh
  }
 
  WellSite = function(well) {
@@ -157,9 +154,12 @@
 
 
  WellColumn = function(well) {
-   var height = (well.reservoir.bottom - well.reservoir.top)
-   var geometry = new THREE.CylinderGeometry(.2, .2, height / 2)
-   geometry.applyMatrix(new THREE.Matrix4().makeTranslation(0, -height / 2, 0));
+
+   var height = (well.reservoir.bottom - well.reservoir.top)/10
+   
+   var geometry = new THREE.CylinderGeometry(.2, .2, height)
+   
+   // geometry.applyMatrix(new THREE.Matrix4().makeTranslation(0, -well.reservoir.top, 0));
 
    geometry.applyMatrix( new THREE.Matrix4().makeRotationX( Math.PI / 2 ) );
    
@@ -169,7 +169,8 @@
      shininess: 25
    })
    var column = new THREE.Mesh(geometry, material);
-   column.position.set(well.lat, well.lng, 0)
+
+   column.position.set(well.lat, well.lng, -((well.reservoir.top/10)+height/2))
 
    column.receiveShadow = true
    // column.rotation.x = 90

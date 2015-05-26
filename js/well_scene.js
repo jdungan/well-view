@@ -1,4 +1,6 @@
+
  var projection = d3.geo.albers().rotate([-48, 0]);
+ z_scale = .0025
 
 
  coords = function(fips) {
@@ -24,6 +26,30 @@
    return boundaries
 
  }
+
+  Centroid =function (v_array) {
+    var first = v_array[0]
+   
+    var corners = _.reduce(v_array,function (prev,next) {
+     
+      return {X: {
+         max: next.x > prev.X.max ? next.x : prev.X.max,
+         min: next.x < prev.X.min ? next.x : prev.X.min
+         },
+       Y: {
+         max: next.y > prev.Y.max ? next.y : prev.Y.max,
+         min: next.y < prev.Y.min ? next.y : prev.Y.min
+         }
+       }
+     
+    },{X:{max:first.x,min:first.x},Y:{max:first.y,min:first.y}})
+   
+    return new THREE.Vector3(
+      ((corners.X.max - corners.X.min)/2)+corners.X.min,
+      ((corners.Y.max - corners.Y.min)/2)+corners.Y.min,
+      0
+    )    
+  }
 
  borders = function(vectors) {
    var group = new THREE.Object3D();
@@ -106,13 +132,13 @@
    
 	var groundTexture = THREE.ImageUtils.loadTexture( "textures/grasslight-big.jpg" );
 	groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
-	groundTexture.repeat.set( 2500, 2500 );
+	groundTexture.repeat.set( size, size );
 	groundTexture.anisotropy = 16;
    
    var material = new THREE.MeshPhongMaterial({
      color: 0xffffff,
      specular: 0x111111,
-      map: groundTexture,
+     map: groundTexture,
      side: THREE.DoubleSide,
      receiveShadow: true
    });
@@ -123,61 +149,66 @@
    return mesh
  }
 
+WellGeometry = function (well,height) {
+  height = height | 1
+  var geometry = new THREE.CylinderGeometry(.5, .5, height)
+  // orient the cylinder on along the z axis
+  geometry.applyMatrix( new THREE.Matrix4().makeRotationX( Math.PI / 2 ) );
+  
+  return geometry
+  
+}
+
+WellMesh = function (geometry,material,well) {
+  var mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(well.lat, well.lng, 0)
+  mesh.receiveShadow = true
+  return mesh
+}
+
+
  KellyBushing = function(well) {
-   var kb_val = well.kb ? (well.kb.value / 1000) : 0
-   var geometry = new THREE.CylinderGeometry(.5, .5, 1)
-   geometry.applyMatrix( new THREE.Matrix4().makeRotationX( Math.PI / 2 ) );
    
+   var kb_val = well.kb ? (well.kb.value * z_scale) : 0
+   geometry = WellGeometry (well,kb_val)
+      
    var material = new THREE.MeshPhongMaterial({
      color: 0x555555,
      shininess: 150
    })
-   var mesh = new THREE.Mesh(geometry, material);
-   mesh.position.set(well.lat, well.lng, kb_val)
-   mesh.receiveShadow = true
+   
+   var mesh = WellMesh(geometry, material,well);
+   mesh.position.setZ(kb_val/2)
    return mesh
  }
 
  WellSite = function(well) {
-   var geometry = new THREE.CylinderGeometry(.5, .5, 1)
-   geometry.applyMatrix( new THREE.Matrix4().makeRotationX( Math.PI / 2 ) );
-   
+   geometry = WellGeometry (well)
    var material = new THREE.MeshPhongMaterial({
      color: 0x996600,
      shininess: 1
    })
-   var mesh = new THREE.Mesh(geometry, material);
-   mesh.position.set(well.lat, well.lng, 0)
-   mesh.receiveShadow = true
+   var mesh = WellMesh(geometry, material,well);
    return mesh
  }
 
 
- WellColumn = function(well) {
+ Reservoir = function(well) {
 
-   var height = (well.reservoir.bottom - well.reservoir.top)/10
+   var height = (well.reservoir.bottom - well.reservoir.top)*z_scale
    
-   var geometry = new THREE.CylinderGeometry(.2, .2, height)
-   
-   // geometry.applyMatrix(new THREE.Matrix4().makeTranslation(0, -well.reservoir.top, 0));
-
-   geometry.applyMatrix( new THREE.Matrix4().makeRotationX( Math.PI / 2 ) );
+   geometry = WellGeometry (well,height)
    
    var material = new THREE.MeshPhongMaterial({
      color: 0x00FF00,
      specular: 0xffffff,
      shininess: 25
    })
-   var column = new THREE.Mesh(geometry, material);
-
-   column.position.set(well.lat, well.lng, -((well.reservoir.top/10)+height/2))
-
-   column.receiveShadow = true
-   // column.rotation.x = 90
-   return column
+   
+   var mesh = WellMesh(geometry, material,well);
+   mesh.position.setZ( -((well.reservoir.top/10)+height/2))
+   return mesh
  }
-
-
 
 
  var container = document.createElement('div');
@@ -186,7 +217,6 @@
  var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
  var clock = new THREE.Clock();
  var renderer = new THREE.WebGLRenderer();
-
 
  function render() {
    controls.update(clock.getDelta());
@@ -198,12 +228,9 @@
    render();
  };
 
-
  function pointAt(v) {
-
    camera.position.set(v.x, v.y, 50)
    camera.lookAt(v)
-
  }
 
  function init() {
@@ -211,7 +238,7 @@
    document.body.appendChild(renderer.domElement);
 
    controls = new THREE.FlyControls(camera);
-   controls.movementSpeed = 75;
+   controls.movementSpeed = 50;
    controls.domElement = container;
    controls.rollSpeed = Math.PI / 12;
    controls.autoForward = false;
@@ -223,6 +250,8 @@
    hemiLight.position.set(0, 0, 2000);
    hemiLight.visible = true
    hemiLight.castShadow = true
+
+
    scene.add(hemiLight);
 
    // select counties using fips number for state
@@ -232,33 +261,9 @@
    
    scene.add(state)
 
-   // convenience vectors
-   var gz = new THREE.Vector3(0, 0, 0)
-   
-   var all_vectors = _.flatten(counties)
-   var first = all_vectors[0]
-   
-   var corners = _.reduce(all_vectors,function (prev,next) {
-     
-     return {X: {
-        max: next.x > prev.X.max ? next.x : prev.X.max,
-        min: next.x < prev.X.min ? next.x : prev.X.min
-        },
-      Y: {
-        max: next.y > prev.Y.max ? next.y : prev.Y.max,
-        min: next.y < prev.Y.min ? next.y : prev.Y.min
-        }
-      }
-     
-   },{X:{max:first.x,min:first.x},Y:{max:first.y,min:first.y}})
-   
-   center = new THREE.Vector3(
-     ((corners.X.max -corners.X.min)/2)+corners.X.min,
-     ((corners.Y.max -corners.Y.min)/2)+corners.Y.min,
-     0
-   )    
-   
-    pointAt(center)
+   var center = Centroid (_.flatten(counties))
+
+   pointAt(center)
    
    // scene.add(HelperArrows(center))
 
@@ -273,10 +278,11 @@
      points = projection([well.lng, well.lat])
      well.lat = points[1]
      well.lng = points[0]
+
      if (well.reservoir.top) {
        kb = KellyBushing(well)
        scene.add(kb);
-       scene.add(WellColumn(well))
+       scene.add(Reservoir(well))
      } else {
        
        scene.add(WellSite(well))
